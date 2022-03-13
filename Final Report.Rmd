@@ -1,0 +1,862 @@
+---
+title: "Final Report: The Effect of Booster Shots on Case Proportion and Mortality Proportion of Vaccinated Individuals"
+author: "Richard Ly"
+date: "3/3/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(gplots)
+library(MASS)
+covid <- read_csv("https://covid19.who.int/WHO-COVID-19-global-data.csv",show_col_types = FALSE)
+```
+
+
+
+```{r include=FALSE}
+usa = subset(covid,covid$Country_code=="US")
+
+ggplot(usa,aes(x = Date_reported)) + geom_line(aes(y = Cumulative_cases), color="blue") + ylab("Cumulative Count") + xlab("Date Reported") + ggtitle("Cumulative Cases for COVID-19 (USA)")
+
+#ggplot(usa,aes(x = Cumulative_cases)) + geom_line(aes(y = Cumulative_deaths)) 
+
+ggplot(usa,aes(x = Date_reported))+ geom_line(aes(y = Cumulative_deaths), color="red")+ ylab("Cumulative Count") + xlab("Date Reported") + ggtitle("Cumulative Deaths for COVID-19 (USA)")
+
+ggplot(usa,aes(x=Date_reported,y=New_cases))+  geom_bar(stat = "identity")+ ylab("New Case Count") + xlab("Date Reported") + ggtitle("New Cases for COVID-19 (USA)")
+```
+
+```{r include=FALSE}
+#Narrow down the time frame to match the booster shot data time frame: 202138 (September 15) - 202203 (January 21), but we look a month earlier to observe the behavior of the trend around the time the booster shot is released
+usa_subset = subset(usa,usa$Date_reported >= as.Date("2021-08-15") & usa$Date_reported <= as.Date("2022-01-21"))
+ggplot(usa_subset,aes(x = Date_reported)) + geom_line(aes(y = New_cases), color="blue")
+ggplot(usa_subset,aes(x = Date_reported)) + geom_line(aes(y = New_deaths), color="red")
+#ggplot(usa_subset,aes(x = New_cases)) + geom_line(aes(y = New_deaths))
+
+avg_new_cases = stats::filter(usa_subset$New_cases,rep(1/7,7),method="convolution",sides=1)
+usa_subset["avg_new_cases"] = avg_new_cases
+ggplot(usa_subset,aes(x = Date_reported)) + geom_line(aes(y = avg_new_cases), color="blue") + ggtitle("Average Cases of COVID-19 for the Past 7 Days (USA)") + xlab("Date Reported") + ylab("Average New Cases (Past 7 Days)") + geom_vline(xintercept =  as.Date("2021-09-15"))
+
+avg_new_deaths = stats::filter(usa_subset$New_deaths,rep(1/7,7),method="convolution",sides=1)
+usa_subset["avg_new_deaths"] = avg_new_deaths
+ggplot(usa_subset,aes(x = Date_reported)) + geom_line(aes(y = avg_new_deaths), color="red") + ggtitle("Average Deaths Due to COVID-19 for the Past 7 Days (USA)") + xlab("Date Reported") + ylab("Average New Deaths (Past 7 Days)")+ geom_vline(xintercept =  as.Date("2021-09-15"))
+```
+
+
+```{r include=FALSE}
+rate_by_status_age_adjusted <- read.csv("C:/Users/rly75/OneDrive/Desktop/data_table_for_ageadjusted_rates_of_covid-19-associated_hospitalizations_by_vaccination_and_additional_or_booster_dose_status_in_adults_aged_gteq18_years.csv")
+
+colnames(rate_by_status_age_adjusted)[1] = "week.ending"
+rate_by_status_age_adjusted$week.ending = mdy(rate_by_status_age_adjusted$week.ending)
+
+ggplot() +
+        geom_line(data=rate_by_status_age_adjusted,aes(y=Rate.in.unvaccinated,x= week.ending,colour="Rate.in.unvaccinated"),size=1) +
+         geom_line(data=rate_by_status_age_adjusted,aes(x = week.ending,y = Rate.in.fully.vaccinated.without.additional.or.booster, color="Rate.in.fully.vaccinated.without.additional.or.booster"),size=1) +
+         geom_line(data=rate_by_status_age_adjusted,aes(x = week.ending,y = Rate.in.fully.vaccinated.with.additional.or.booster, color="Rate.in.fully.vaccinated.with.additional.or.booster"),size=1) +
+         geom_point(data=rate_by_status_age_adjusted,aes(y = Rate.in.unvaccinated,x= week.ending,colour="Rate.in.unvaccinated")) +
+         geom_point(data=rate_by_status_age_adjusted,aes(y = Rate.in.fully.vaccinated.without.additional.or.booster,x = week.ending, color="Rate.in.fully.vaccinated.without.additional.or.booster")) +
+         geom_point(data=rate_by_status_age_adjusted,aes(y = Rate.in.fully.vaccinated.with.additional.or.booster,x = week.ending, color="Rate.in.fully.vaccinated.with.additional.or.booster")) +
+         ggtitle("Age-adjusted Rate of Hospitalization due to COVID-19 \n by Vaccination Status for Adults(18 or Older)") +
+         xlab("Week") + ylab("Rate per 100,000 Population") +
+  scale_color_manual(name = "Vaccination Status", values = c("Rate.in.unvaccinated" = "red", "Rate.in.fully.vaccinated.without.additional.or.booster" = "blue","Rate.in.fully.vaccinated.with.additional.or.booster" = "green"))
+
+```
+
+
+
+
+```{r include=FALSE}
+#This section of code is unused
+rate_by_status <- read.csv("C:/Users/rly75/OneDrive/Desktop/data_table_for_rates_of_covid19-associated_hospitalizations_by_vaccination_and_additional_or_booster_dose_status.csv")
+
+colnames(rate_by_status)[1] = "week.ending"
+rate_by_status$week.ending = as.Date(rate_by_status$week.ending, format = "%m/%d/%y")
+
+
+```
+
+
+
+```{r include=FALSE}
+main_data <- read.csv("C:/Users/rly75/OneDrive/Desktop/Rates_of_COVID-19_Cases_or_Deaths_by_Age_Group_and_Vaccination_Status_and_Booster_Dose.csv")
+
+#Convert MMWR week from YYYYWW to a date
+main_data$mmwr_week = main_data$mmwr_week * 10 + 1
+main_data$mmwr_week = as.Date(as.character(main_data$mmwr_week), "%Y%U%u")
+
+cases = subset(main_data[,1:11],main_data$outcome=="case" & main_data$age_group=="all_ages" & main_data$vaccine_product=="all_types")
+deaths = subset(main_data[,1:11],main_data$outcome=="death" & main_data$age_group=="all_ages" & main_data$vaccine_product=="all_types")
+
+cases["unvaccinated_outcome_rate"] = cases$unvaccinated_with_outcome/cases$unvaccinated_population
+cases["vaccinated_with_outcome_rate"] = cases$vaccinated_with_outcome/cases$fully_vaccinated_population
+cases["boosted_with_outcome_rate"] = cases$boosted_with_outcome/cases$boosted_population
+
+deaths["unvaccinated_outcome_rate"] = deaths$unvaccinated_with_outcome/deaths$unvaccinated_population
+deaths["vaccinated_with_outcome_rate"] = deaths$vaccinated_with_outcome/deaths$fully_vaccinated_population
+deaths["boosted_with_outcome_rate"] = deaths$boosted_with_outcome/deaths$boosted_population
+
+cases["total_outcomes"] = cases$unvaccinated_with_outcome+cases$vaccinated_with_outcome+cases$boosted_with_outcome
+deaths["total_outcomes"] = deaths$unvaccinated_with_outcome+deaths$vaccinated_with_outcome+deaths$boosted_with_outcome
+
+cases["total_population"] = cases$unvaccinated_population+cases$fully_vaccinated_population+cases$boosted_population
+deaths["total_population"] = deaths$unvaccinated_population+deaths$fully_vaccinated_population+deaths$boosted_population
+
+cases["total_outcome_rate"] = cases$total_outcomes/cases$total_population
+deaths["total_outcome_rate"] = deaths$total_outcomes/deaths$total_population
+
+
+
+
+ggplot() + 
+         geom_line(data=cases,aes(x = mmwr_week,y = unvaccinated_with_outcome, color="Unvaccinated"),size=1) +
+         geom_line(data=cases,aes(x = mmwr_week,y = vaccinated_with_outcome, color="Vaccinated"),size=1) +
+         geom_line(data=cases,aes(x = mmwr_week,y = boosted_with_outcome, color="Boosted"),size=1)+
+         ggtitle("Weekly Number of COVID-19 Cases by Vaccination Status") +
+         xlab("Date Reported") + ylab("Number of COVID-19 Cases")+
+  scale_color_manual(name = "Vaccination Status", values = c("Unvaccinated" = "red", "Vaccinated" = "blue","Boosted" = "green"))
+
+
+ggplot() + 
+         geom_line(data=deaths,aes(x = mmwr_week,y = unvaccinated_with_outcome, color="Unvaccinated"),size=1) +
+         geom_line(data=deaths,aes(x = mmwr_week,y = vaccinated_with_outcome, color="Vaccinated"),size=1) +
+         geom_line(data=deaths,aes(x = mmwr_week,y = boosted_with_outcome, color="Boosted"),size=1)+
+         ggtitle("Weekly Number of Deaths Due to COVID-19 by Vaccination Status") +
+         xlab("Date Reported") + ylab("Number of Deaths Due to COVID-19")+
+  scale_color_manual(name = "Vaccination Status", values = c("Unvaccinated" = "red", "Vaccinated" = "blue","Boosted" = "green"))
+```
+
+
+
+```{r include=FALSE}
+#Cases Model Fit
+cases_data = rbind(cbind(cases$vaccinated_with_outcome_rate, rep(1,times=nrow(cases))), cbind(cases$boosted_with_outcome_rate, rep(2,times=nrow(cases))) )
+colnames(cases_data) = cbind("rate","status")
+cases_data = as.data.frame(cases_data)
+cases_data$status = as.factor(cases_data$status)
+plotmeans(rate~status,data=cases_data)
+
+aov_cases = aov(rate~status,data=cases_data)
+summary(aov_cases)
+
+plot(aov_cases,1:2)
+
+bc_cases = boxcox(aov_cases)
+
+lambda_cases = bc_cases$x[which.max(bc_cases$y)] #-0.303
+
+aov_cases = aov((rate^lambda_cases - 1)/lambda_cases ~status,data=cases_data)
+plot(aov_cases,1:2)
+summary(aov_cases)
+```
+
+
+```{r include=FALSE}
+#Deaths Model Fit
+deaths_data = rbind(cbind(deaths$vaccinated_with_outcome_rate, rep(1,times=nrow(deaths))), cbind(deaths$boosted_with_outcome_rate, rep(2,times=nrow(deaths))) )
+colnames(deaths_data) = cbind("rate","status")
+deaths_data = as.data.frame(deaths_data)
+deaths_data$status = as.factor(deaths_data$status)
+
+plotmeans(rate~status,data=deaths_data)
+
+aov_deaths = aov(rate~status,data=deaths_data)
+summary(aov_deaths)
+plot(aov_deaths,1:2)
+
+
+
+bc_deaths = boxcox(aov_deaths)
+
+lambda_deaths = bc_deaths$x[which.max(bc_deaths$y)]
+
+aov_deaths = aov((rate^lambda_deaths-1)/lambda_deaths~status,data=deaths_data)
+plot(aov_deaths,1:2)
+summary(aov_deaths)
+
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+age_adj_irr_cases = subset(main_data,main_data$outcome=="case" & main_data$age_group=="all_ages" & main_data$vaccine_product=="all_types")
+
+
+age_adj_irr_cases_data = rbind(cbind(age_adj_irr_cases$month,age_adj_irr_cases$age_adj_irr, rep(1,times=nrow(cases))), cbind(age_adj_irr_cases$month,age_adj_irr_cases$age_adj_booster_irr, rep(2,times=nrow(cases))) )
+colnames(age_adj_irr_cases_data) = cbind("time","rate","status")
+
+age_adj_irr_cases_data[1:10,"time"] = "pre_dec"
+age_adj_irr_cases_data[11:18,"time"] = "post_dec"
+
+age_adj_irr_cases_data[19:28,"time"] = "pre_dec"
+age_adj_irr_cases_data[28:36,"time"] = "post_dec"
+
+
+age_adj_irr_cases_data = as.data.frame(age_adj_irr_cases_data)
+age_adj_irr_cases_data$status = as.factor(age_adj_irr_cases_data$status)
+age_adj_irr_cases_data$time = as.factor(age_adj_irr_cases_data$time)
+age_adj_irr_cases_data$rate = as.double(age_adj_irr_cases_data$rate)
+
+#plotmeans(rate~status,data=age_adj_irr_cases_data)
+#plotmeans(rate~time,data=age_adj_irr_cases_data)
+
+
+aov_irr_cases = aov(rate~status+time+status*time,data=age_adj_irr_cases_data)
+
+summary(aov_irr_cases)
+
+plot(aov_irr_cases,1:2)
+hist(aov_irr_cases$residuals)
+
+bc_irr_cases = boxcox(aov_irr_cases)
+lambda_irr_cases = bc_irr_cases$x[which.max(bc_irr_cases$y)]
+
+aov_irr_cases_interaction = aov((rate^lambda_irr_cases-1)/lambda_irr_cases~status+time+status*time,data=age_adj_irr_cases_data)
+summary(aov_irr_cases_interaction)
+plot(aov_irr_cases_interaction,1:2)
+hist(aov_irr_cases_interaction$residuals)
+
+aov_irr_cases = aov((rate^lambda_irr_cases-1)/lambda_irr_cases~status+time,data=age_adj_irr_cases_data)
+summary(aov_irr_cases)
+plot(aov_irr_cases,1:2)
+hist(aov_irr_cases$residuals)
+
+#Conduct simultaneous inference 
+alpha=0.05;
+T.ci_irr_cases=TukeyHSD(aov_irr_cases,conf.level = 1-alpha)
+contrast_irr_cases = T.ci_irr_cases$status
+contrast_irr_cases
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+age_adj_irr_deaths = subset(main_data,main_data$outcome=="death" & main_data$age_group=="all_ages" & main_data$vaccine_product=="all_types")
+
+
+age_adj_irr_deaths_data = rbind(cbind(age_adj_irr_deaths$month,age_adj_irr_deaths$age_adj_irr, rep(1,times=nrow(deaths))), cbind(age_adj_irr_deaths$month,age_adj_irr_deaths$age_adj_booster_irr, rep(2,times=nrow(deaths))) )
+colnames(age_adj_irr_deaths_data) = cbind("time","rate","status")
+
+age_adj_irr_deaths_data[1:10,"time"] = "pre_dec"
+age_adj_irr_deaths_data[11:15,"time"] = "post_dec"
+
+age_adj_irr_deaths_data[16:25,"time"] = "pre_dec"
+age_adj_irr_deaths_data[26:30,"time"] = "post_dec"
+
+
+age_adj_irr_deaths_data = as.data.frame(age_adj_irr_deaths_data)
+age_adj_irr_deaths_data$status = as.factor(age_adj_irr_deaths_data$status)
+age_adj_irr_deaths_data$time = as.factor(age_adj_irr_deaths_data$time)
+age_adj_irr_deaths_data$rate = as.double(age_adj_irr_deaths_data$rate)
+
+
+aov_irr_deaths = aov(rate~status+time+status*time,data=age_adj_irr_deaths_data)
+
+summary(aov_irr_deaths)
+
+aov_irr_deaths = aov(rate~status+time,data=age_adj_irr_deaths_data)
+
+summary(aov_irr_deaths)
+
+aov_irr_deaths = aov(rate~status,data=age_adj_irr_deaths_data)
+
+summary(aov_irr_deaths)
+
+plot(aov_irr_deaths,1:2)
+hist(aov_irr_deaths$residuals)
+
+bc_irr_deaths = boxcox(aov_irr_deaths)
+lambda_irr_deaths = bc_irr_deaths$x[which.max(bc_irr_deaths$y)]
+
+aov_irr_deaths = aov((rate^lambda_irr_deaths-1)/lambda_irr_deaths~status,data=age_adj_irr_deaths_data)
+summary(aov_irr_deaths)
+
+plot(aov_irr_deaths,1:2)
+hist(aov_irr_deaths$residuals)
+
+
+#Conduct simultaneous inference 
+alpha=0.05;
+T.ci_irr_deaths=TukeyHSD(aov_irr_deaths,conf.level = 1-alpha)
+contrast_irr_deaths = T.ci_irr_deaths$status
+contrast_irr_deaths
+```
+
+# Introduction
+
+In this report, we will explore a number of datasets concerned with the COVID-19 pandemic, all of which are publicly available and may be found in the References. The first dataset is a dataset provided by the WHO. It contains global data, covering many countires, for cases and deaths, both new and cumulative. This dataset begins from January 2020 and is currently constantly updated as of the writing of this report. It provides a general overview on the spread and mortality of the virus on both regional and global scales. An additional dataset provided by the CDC offers insight into the number of hospitalizations due to COVID-19. This dataset also categorizes the number of hospitalizations by three vaccination statues: unvaccinated, fully vaccinated without booster shot, and fully vaccinated with booster shot. It can be seen through visualization of this data set that there appears to be a decrease in hospitalizations in fully vaccinated individuals, when compared to unvaccinated individuals. Similarly, there seems to be a further decrease in hospitalizations in boosted individuals, when compared to fully vaccinated individuals who have not received the booster shot. This motivates the question of interest: The question of interest is whether the booster shot is effective in lowering the case rate and death rate of COVID-19, further than the effects of the vaccine itself. To reach a conclusion with respect to these questions of interest, we will primarily work with another dataset provided by the CDC. This dataset is restricted to the United States, and with data spanning from September 2021 to January 2022. In particular, this dataset offers data with multiple variables concerning the numbers of cases and deaths for unvaccinated, fully vaccinated without booster shot, fully vaccinated with booster shot, total populations for each of these categories of individuals. Key variables in this dataset are two (age adjusted) incident rate ratios (IRR) recorded for each week spanned by the dataset, one for fully vaccinated individuals without the booster shot, and one fully vaccinated individuals with the booster shot. These two IRR's are defined as the ratio of unvaccinated outcomes (case or death) to fully vaccinated without booster shot and fully vaccinated with booster shot individuals. In answering this question of interest, it may indicate that the booster shot offers additional protection against infection and death from the COVID-19 virus. We will use the key variable (IRR) previously mentioned from the CDC dataset and compare the two weekly IRR's. We treat each weekly IRR as an observation, and treat the status of receiving the booster shot as a fixed effect. In addition, we note a spike in number of COVID-19 cases and deaths after December 2021, so we treat the time period before and after December 2021 as a fixed effect. We create a two-way fixed ANOVA model with these two effects. We use hypothesis testing to compare the equivalence of the mean of the vaccinated IRR and boosted IRR for number of cases. Similarly, we perform hypothesis testing to compare the equivalence of the mean of the vaccinated IRR and boosted IRR for number of deaths. A difference in the vaccinated IRR and boosted IRR may indicate that the booster shot is effective in offering additional protection against COVID-19 for vaccinated individuals. 
+
+# Background
+
+Discovered in December 2019, COVID-19 is highly contagious and has quickly spread throughout the world, becoming a pandemic. Causing respiratory issues, and possibly other health issues, COVID-19 Vaccines were created. Distribution of the vaccines to populations, beginning with populations at increased risk, began after their approval. COVID-19 vaccines have been found to be effective in reducing the number of cases and deaths due to COVID-19. Research implications of reduced protection over time motivated the release of booster shots for the virus. This motivates the questions of interest: Are the booster shots for COVID-19 effective in further reducing the number of cases and deaths due to COVID-19 for vaccinated individuals? The CDC offers a report [here](https://www.cdc.gov/mmwr/volumes/71/wr/pdfs/mm7104a2-H.pdf) in finding the effectiveness of a third dose of the vaccine (booster shot) in preventing hospitalizations among adults. In this report, we use a [CDC dataset](https://data.cdc.gov/Public-Health-Surveillance/Rates-of-COVID-19-Cases-or-Deaths-by-Age-Group-and/d6p8-wqjm) to attempt to answer the question of interest. The dataset involves adults of the following age groups: 18-49,50-64, and 65+. Additionally, the CDC also lists the type of vaccine product the adults have received: Janssen, Moderna, or Pfizer. We look at all age groups and all vaccine types used. The dataset has variables: outcome, boosted with outcome, boosted population, vaccinated with outcome, vaccinated population, unvaccinated with outcome, and unvaccinated population. Most notably, the datset contains the variables: age adjusted IRR (fully vaccinated without booster shot IRR) and age adjusted booster IRR (fully vaccinated with booster shot IRR).
+
+# Material and Methods
+
+### Exploratory Data Analysis
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(usa_subset,aes(x = Date_reported)) + geom_line(aes(y = avg_new_cases), color="blue") + ggtitle("Average Cases of COVID-19 Reported for the Past 7 Days (USA)") + xlab("Date Reported") + ylab("Average New Cases (Past 7 Days)") + geom_vline(xintercept =  as.Date("2021-09-15"))
+
+ggplot(usa_subset,aes(x = Date_reported)) + geom_line(aes(y = avg_new_deaths), color="red") + ggtitle("Average Deaths Due to COVID-19 Reported for the Past 7 Days (USA)") + xlab("Date Reported") + ylab("Average New Deaths (Past 7 Days)")+ geom_vline(xintercept =  as.Date("2021-09-15"))
+```
+
+We begin by looking at the global COVID-19 data set. We narrow down the WHO dataset time frame to more closely examine the time frame in which the booster shot dataset spans. Similarly, we choose to only observe the data reported within the United States, as the booster shot dataset is supplied by the Center of Disease Control (CDC), a federal agency within the United States, and only contains data collected nationally. The past 7 day average new cases appears to have a slight decline at the same timing as the release of the booster shots, marked by a vertical line on the plots above. There is also a sharp decline in the average new deaths shortly after the booster shot was released. Interestingly, around the beginning of December, the average new cases and deaths both climb to a spike. 
+
+```{r echo=FALSE}
+ggplot() +
+        geom_line(data=rate_by_status_age_adjusted,aes(y=Rate.in.unvaccinated,x= week.ending,colour="Unvaccinated"),size=1) +
+         geom_line(data=rate_by_status_age_adjusted,aes(x = week.ending,y = Rate.in.fully.vaccinated.without.additional.or.booster, color="Fully Vaccinated"),size=1) +
+         geom_line(data=rate_by_status_age_adjusted,aes(x = week.ending,y = Rate.in.fully.vaccinated.with.additional.or.booster, color="Boosted"),size=1) +
+         geom_point(data=rate_by_status_age_adjusted,aes(y = Rate.in.unvaccinated,x= week.ending,colour="Unvaccinated")) +
+         geom_point(data=rate_by_status_age_adjusted,aes(y = Rate.in.fully.vaccinated.without.additional.or.booster,x = week.ending, color="Fully")) +
+         geom_point(data=rate_by_status_age_adjusted,aes(y = Rate.in.fully.vaccinated.with.additional.or.booster,x = week.ending, color="Boosted")) +
+         ggtitle("Age-adjusted Rate of Hospitalization due to COVID-19 \n by Vaccination Status for Adults(18 or Older)") +
+         xlab("Week") + ylab("Rate per 100,000 Population") +
+  scale_color_manual(name = "Vaccination Status", values = c("Unvaccinated" = "red", "Fully Vaccinated" = "blue","Boosted" = "green"))
+```
+
+Using the CDC data, we can see visually that the hospitalization rate of those who are unvaccinated is much higher than those who are fully vaccinated without the booster shot and those who are fully vaccinated with the booster shot. (Fully vaccinated is defined as those with at least two doses of a COVID-19 vaccine). Similarly, it is visually apparent that of fully vaccinated individuals, those with the booster shot have a lower rate of hospitalization than those without the booster shot. 
+
+```{r echo=FALSE}
+ggplot() + 
+         geom_line(data=cases,aes(x = mmwr_week,y = unvaccinated_with_outcome, color="Unvaccinated"),size=1) +
+         geom_line(data=cases,aes(x = mmwr_week,y = vaccinated_with_outcome, color="Vaccinated"),size=1) +
+         geom_line(data=cases,aes(x = mmwr_week,y = boosted_with_outcome, color="Boosted"),size=1)+
+         ggtitle("Weekly Number of COVID-19 Cases by Vaccination Status") +
+         xlab("Date Reported") + ylab("Number of COVID-19 Cases")+
+  scale_color_manual(name = "Vaccination Status", values = c("Unvaccinated" = "red", "Vaccinated" = "blue","Boosted" = "green"))
+
+
+
+```
+
+We also look at the number of COVID-19 cases by vaccination status. Once again, we see that unvaccinated individuals have a higher number of COVID-19 cases than fully vaccinated individuals. And between the fully vaccinated individuals, those who have not received the booster shot have a higher number of cases than those who have received the booster shot. This agrees with the previous graphic, and supports a claim in favor of the booster shot's effectiveness. 
+
+
+
+```{r echo=FALSE}
+ggplot() + 
+         geom_line(data=deaths,aes(x = mmwr_week,y = unvaccinated_with_outcome, color="Unvaccinated"),size=1) +
+         geom_line(data=deaths,aes(x = mmwr_week,y = vaccinated_with_outcome, color="Vaccinated"),size=1) +
+         geom_line(data=deaths,aes(x = mmwr_week,y = boosted_with_outcome, color="Boosted"),size=1)+
+         ggtitle("Weekly Number of Deaths Due to COVID-19 by Vaccination Status") +
+         xlab("Date Reported") + ylab("Number of Deaths Due to COVID-19")+
+  scale_color_manual(name = "Vaccination Status", values = c("Unvaccinated" = "red", "Vaccinated" = "blue","Boosted" = "green"))
+```
+
+We finally look at the number of deaths due to COVID-19 by vaccination status. Unvaccinated individuals have a higher number of deaths than fully vaccinated individuals. And of the fully vaccinated individuals, those who have not received the booster shot have a higher number of deaths than individuals who have received the booster shot. This agrees with the both previous graphics. Visually, it seems that there is a trend in the number of cases and deaths by vaccination status. 
+
+$\text{IRR}_{vaccinated} = \frac{\text{number of unvaccinated individuals with the outcome}}{\text{number of vaccinated (unboosted) individuals with the outcome} }$
+
+$\text{IRR}_{boosted} = \frac{\text{number of unvaccinated individuals with the outcome}}{\text{number of boosted individuals with the outcome} }$
+
+```{r}
+summary(age_adj_irr_cases_data)
+```
+
+```{r include=FALSE}
+mean_case_irr = matrix(c(mean(age_adj_irr_cases$age_adj_irr),
+mean(age_adj_irr_cases$age_adj_booster_irr)), ncol=2)
+colnames(mean_case_irr) = c("Full Vaccinated Without Booster Mean Case IRR","Boosted Mean Case IRR")
+```
+
+```{r}
+mean_case_irr
+```
+
+We organize and subset the case data for the CDC dataset above. We categorize the date of the data as a time period factor, before and after December 2021, where we observe a spike in cases. The rate is the case IRR rate. The status 1 corresponds to fully vaccinate individuals without booster, and the status 2 corresponds to boosted individuals. We observe that the 
+
+```{r}
+summary(age_adj_irr_deaths_data)
+```
+
+```{r include=FALSE}
+mean_death_irr = matrix(c(mean(age_adj_irr_deaths$age_adj_irr),
+mean(age_adj_irr_deaths$age_adj_booster_irr)),ncol = 2)
+colnames(mean_death_irr) = c("Full Vaccinated Without Booster Mean Death IRR","Boosted Mean Death IRR")
+```
+
+```{r}
+mean_death_irr
+```
+
+We organize and subset the death data for the CDC dataset above similarly to the case data in the CDC dataset. 
+
+From our exploratory data analysis of a number of datasets, visually we observe a trend that supports a claim in favor of the booster shot's effectiveness. This motivates the question of interest: Is the booster shot effective? We can view the booster shot's effectiveness as any significant difference in IRR for fully vaccinated (non-boosted) individuals and boosted individuals.
+
+
+### Model - Case IRR
+
+
+
+We can attempt to model the case IRR by booster status and time period as factors with the following model: 
+
+
+The model used is a fixed two-way ANOVA model. A fixed two-way ANOVA model is chosen because the questions of interest involves booster status as a factor $\alpha_i$ in determining the case IRR. In addition, we have previously noted the spike in cases after December 2021, so we choose the time periods before and after December 2021 as a second factor $\beta_j$. We claim there is a population case IRR $\mu$, affected by the factor effect $\alpha_i$ and $\beta_j$ such that the case IRR $Y_{ijk}= \mu +\alpha_i+ \beta_j +\epsilon_{ijk}$, where $\epsilon_{ijk}$ is statistical error that is independent and identically distributed to a Normal distirbution with mean 0, variance $\sigma^2$. The ANOVA model is convenient for modeling categorical data, so the ANOVA model is preferred in this study. 
+
+$Y_{ijk} = \mu +\alpha_i+\beta_j+(\alpha\beta)_{ij}+\epsilon_{ijk}$
+
+- $\mu$ is the population mean for outcome proportion
+- $i = 1,2$ indexes the vaccination statuses: fully vaccinated without booster shot, and fully vaccinated with booster shot, respectively
+- $j$ indexes the time periods: before and after December 2021. 
+- $k$ indexes the weekly case IRR, which we treat as observations
+- $Y_{ijk}$ is the case IRR for observation $k$ with vaccination status $i$ and time period $j$
+- $\alpha_i$ is the factor effect of the booster shot status on case IRR for vaccinated individuals
+- $\beta_j$ is the factor effect of the time period on case IRR for vaccinated individuals
+- $(\alpha\beta)_{ij}$ is the interaction effect between the two factors
+- $\epsilon_{ijk}\overset{i.i.d.}{\sim} N(0,\sigma^2)$ represents the statistical error for observation $ijk$
+
+We find that the interaction term is not statistically significant, however, and so it it removed from the model equation. We additionally try to to transform the response variable, case IRR, with the BoxCos procedure to allow the residuals to be more normally distributed. These give a reduced and transformed model:
+
+$\frac{1}{\lambda}(ln(Y_{ijk})^\lambda-1) = \mu +\alpha_i+\beta_j+\epsilon_{ijk}$
+
+- $\lambda = -0.545$ is the value obtained after performing the BoxCox procedure
+
+```{r echo=FALSE}
+summary(aov_irr_cases)
+```
+
+### Model - Death IRR
+
+The The model used is a fixed one-way ANOVA model. The model began as a fixed two-way ANOVA model with booster status and time period as factors, just as in the case IRR model. However, the interaction effect and time period factor were not found to be statistically significant, and so were removed from the final model for death IRR. The response variable of death IRR was transformed using a BoxCox procedure.
+
+$\frac{1}{\lambda}(ln(Y_{ij})^\lambda-1) = \mu +\alpha_i+\epsilon_{ij}$
+
+- $\lambda = -0.626$ is the value obtained after performing the BoxCox procedure to be used for the weekly proportion of deaths
+- $\mu$ is the population mean for outcome proportion
+- $i = 1,2$ indexes the vaccination statuses: fully vaccinated without booster shot, and fully vaccinated with booster shot, respectively
+- $j$ indexes the weekly death IRR, which we treat as observations
+- $Y_{ij}$ is the death IRR for observation $j$ with vaccination status $i$
+- $\alpha_i$ is the factor effect of the booster shot status on case IRR for vaccinated individuals
+- $\epsilon_{ij}\overset{i.i.d.}{\sim} N(0,\sigma^2)$ represents the statistical error for observation $ij$
+
+```{r}
+summary(aov_irr_deaths)
+```
+
+### Hypothesis Testing - Case IRR 
+
+We would like to now determine if we can conclude that the mean case IRR for boosted individuals is the equivalent to the mean case IRR for fully vaccinated individuals who are not boosted. Because of the pairwise comparison of $\alpha_1 $ and $\alpha_2$, we choose to use the Tukey method. We proceed by conducting simultaneous inference under the following hypotheses:
+
+$H_0: \alpha_1-\alpha_2 =0$ vs $H_a: \alpha_1 \neq\alpha_2$
+
+We construct a simultaneous confidence interval with significance level $\alpha=0.05$ with the Tukey method:
+
+```{r echo=FALSE}
+#Conduct simultaneous inference 
+alpha=0.05;
+T.ci_irr_cases=TukeyHSD(aov_irr_cases,conf.level = 1-alpha)
+contrast_irr_cases = T.ci_irr_cases$status
+contrast_irr_cases
+```
+We note that 0 is not captured in the 95% simultaneous confidence interval, so we reject the null hypothesis $H_0$ and conclude the alternative $H_a$. The mean case IRR for boosted individuals is not equivalent to the  mean case IRR for fully vaccinated individuals who are not boosted. Notably, the mean case IRR is greater for boosted individuals than for fully vaccinated individuals that are not boosted. .
+
+### Hypothesis Testing - Death IRR 
+
+Similarly, we would conduct simultaneous inference under the following hypotheses to test if the mean death IRR for boosted individuals is equivalent to the mean death IRR for fully vaccinated individuals who are not boosted. 
+
+$H_0: \alpha_1-\alpha_2 =0$ vs $H_a: \alpha_1 \neq\alpha_2$
+
+We construct a simultaneous confidence interval with significance level $\alpha=0.05$ with the Tukey method:
+
+```{r echo=FALSE}
+#Conduct simultaneous inference 
+alpha=0.05;
+T.ci_irr_deaths=TukeyHSD(aov_irr_deaths,conf.level = 1-alpha)
+contrast_irr_deaths = T.ci_irr_deaths$status
+contrast_irr_deaths
+```
+
+We note that 0 is not captured in the 95% simultaneous confidence interval, so we reject the null hypothesis $H_0$ and conclude the alternative $H_a$. The mean death IRR for boosted individuals is not equivalent to the mean death IRR for fully vaccinated individuals who are not boosted. Notably, the mean death IRR is higher for boosted individuals than for fully vaccinated individuals that are not boosted. 
+
+### Model Diagnostics - Case IRR
+
+We check the residuals of the model for case IRR for normality.  
+
+```{r echo=FALSE}
+par(mfrow=c(1,2))
+plot(aov_irr_cases,1:2)
+
+#Formal tests for normality and equal variance
+shapiro.test(aov_irr_cases$residuals)
+```
+
+From the normal Q-Q plot, we see that the residuals are somewhat similar to a normal distribution, but is heavy tailed. We proceed with a Shapiro-Wilkes test to verify, and the p-value < 0.05, so we determine that the residuals of the model fail to satisfy normality.
+
+### Model Diagnostics - Death IRR
+
+```{r echo=FALSE}
+par(mfrow=c(1,2))
+plot(aov_irr_deaths,1:2)
+
+#Formal tests for normality and equal variance
+shapiro.test(aov_irr_deaths$residuals)
+```
+
+From the normal Q-Q plot, we see that the residuals are somewhat similar to a normal distribution, but has a very heavy left tail. We proceed with a Shapiro-Wilkes test to verify, and we find that the p-value < 0.05, so we determine that the residuals of the model fail to satisfy normality.
+
+# Results
+
+The question of interest is whether or not the COVID-19 booster shot is effective in decreasing the case rate and death rate of COVID-19. As the question of interest is categorical in nature, we determine to use fixed ANOVA models. We found time period of before and after December 2021 was statistically significant as a factor for case IRR, and booster status as well. So the model for case IRR is a two-way fixed ANOVA model. However, time period was not statistically significant for death IRR, and so it was reduced to a one-way fixed ANOVA model. From visual graphics, we hypothesized that the booster shot was effective in lowering cases and deaths of COVID-19. To ascertain this with confidence, we conducted hypothesis testing on case IRR and hypothesis testing on death IRR. From creating simultaneous 95% confidence intervals using the Tukey method for pairwise comparisons, the factor effect of booster status on case IRR was found to be significantly different. Similarly, the factor effect of booster status on death IRR was found to be significantly different. This suggests that the booster shot is effective in lowering the case rate and mortality rate of COVID-19 in vaccinated individuals. However, model diagnostics have shown that the residuals of the case IRR model and death IRR model are not normally distributed. This violates the assumptions of the ANOVA model. Therefore, it can not be concluded that the booster shot is effective. As the booster shot is relatively new, there was limited data available pertaining to the effects of the booster shot on case rate and death rate. As more data is collected, it would be interesting to revisit the question of interest and draw a conclusion towards the effectiveness of the booster shot on case rate and death rate of COVID-19. 
+
+
+# References
+
+Who Coronavirus (Covid-19) Dashboard | Who Coronavirus ... WHO, World Health Organization, https://covid19.who.int/WHO-COVID-19-global-table-data.csv. 
+
+“CDC Covid Data Tracker.” Centers for Disease Control and Prevention, Centers for Disease Control and Prevention,  https://covid.cdc.gov/covid-data-tracker/#covidnet-hospitalizations-vaccination. 
+
+“Rates of Covid-19 Cases or Deaths by Age Group and Vaccination Status and Booster Dose.” Centers for Disease Control and Prevention, Centers for Disease Control and Prevention, 18 Feb. 2022, https://data.cdc.gov/Public-Health-Surveillance/Rates-of-COVID-19-Cases-or-Deaths-by-Age-Group-and/d6p8-wqjm. 
+
+# Appendix
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(gplots)
+library(MASS)
+# required data set
+covid <- read_csv("https://covid19.who.int/WHO-COVID-19-global-data.csv",show_col_types = FALSE) 
+```
+
+
+
+```{r}
+#The booster data set from the CDC (a federal agency in the USA) only contains data for the USA so
+#we restrict the analysis of data from the required WHO dataset to the USA
+usa = subset(covid,covid$Country_code=="US")
+
+ggplot(usa,aes(x = Date_reported)) + geom_line(aes(y = Cumulative_cases), color="blue") + ylab("Cumulative Count") + xlab("Date Reported") + ggtitle("Cumulative Cases for COVID-19 (USA)")
+
+#ggplot(usa,aes(x = Cumulative_cases)) + geom_line(aes(y = Cumulative_deaths)) 
+
+ggplot(usa,aes(x = Date_reported))+ geom_line(aes(y = Cumulative_deaths), color="red")+ ylab("Cumulative Count") + xlab("Date Reported") + ggtitle("Cumulative Deaths for COVID-19 (USA)")
+
+ggplot(usa,aes(x=Date_reported,y=New_cases))+  geom_bar(stat = "identity")+ ylab("New Case Count") + xlab("Date Reported") + ggtitle("New Cases for COVID-19 (USA)")
+```
+
+```{r}
+#Narrow down the time frame to match the booster shot data time frame: 202138 (September 15) - 202203 (January 21), but we look a month earlier to observe the behavior of the trend around the time the booster shot is released
+usa_subset = subset(usa,usa$Date_reported >= as.Date("2021-08-15") & usa$Date_reported <= as.Date("2022-01-21"))
+
+#These two below plots of new cases and deaths show cycles of cases and deaths throughout the trend line
+ggplot(usa_subset,aes(x = Date_reported)) + geom_line(aes(y = New_cases), color="blue")
+ggplot(usa_subset,aes(x = Date_reported)) + geom_line(aes(y = New_deaths), color="red")
+#ggplot(usa_subset,aes(x = New_cases)) + geom_line(aes(y = New_deaths))
+
+#We instead look at the weekly average of new cases and deaths for a smoother plot
+avg_new_cases = stats::filter(usa_subset$New_cases,rep(1/7,7),method="convolution",sides=1)
+usa_subset["avg_new_cases"] = avg_new_cases
+ggplot(usa_subset,aes(x = Date_reported)) + geom_line(aes(y = avg_new_cases), color="blue") + ggtitle("Average Cases of COVID-19 for the Past 7 Days (USA)") + xlab("Date Reported") + ylab("Average New Cases (Past 7 Days)") + geom_vline(xintercept =  as.Date("2021-09-15"))
+
+avg_new_deaths = stats::filter(usa_subset$New_deaths,rep(1/7,7),method="convolution",sides=1)
+usa_subset["avg_new_deaths"] = avg_new_deaths
+ggplot(usa_subset,aes(x = Date_reported)) + geom_line(aes(y = avg_new_deaths), color="red") + ggtitle("Average Deaths Due to COVID-19 for the Past 7 Days (USA)") + xlab("Date Reported") + ylab("Average New Deaths (Past 7 Days)")+ geom_vline(xintercept =  as.Date("2021-09-15"))
+```
+
+https://covid.cdc.gov/covid-data-tracker/#covidnet-hospitalizations-vaccination
+```{r}
+#This dataset gives insight into how the booster shot affects hospitalization due to COVID-19
+#From this, we may hypothesize that the booster shot adds additional protection to vaccinated individuals
+rate_by_status_age_adjusted <- read.csv("C:/Users/rly75/OneDrive/Desktop/data_table_for_ageadjusted_rates_of_covid-19-associated_hospitalizations_by_vaccination_and_additional_or_booster_dose_status_in_adults_aged_gteq18_years.csv")
+
+colnames(rate_by_status_age_adjusted)[1] = "week.ending"
+rate_by_status_age_adjusted$week.ending = mdy(rate_by_status_age_adjusted$week.ending)
+
+#plot number of hospitalizations by vaccination status
+ggplot() +
+        geom_line(data=rate_by_status_age_adjusted,aes(y=Rate.in.unvaccinated,x= week.ending,colour="Unvaccinated"),size=1) +
+         geom_line(data=rate_by_status_age_adjusted,aes(x = week.ending,y = Rate.in.fully.vaccinated.without.additional.or.booster, color="Fully Vaccinated"),size=1) +
+         geom_line(data=rate_by_status_age_adjusted,aes(x = week.ending,y = Rate.in.fully.vaccinated.with.additional.or.booster, color="Boosted"),size=1) +
+         geom_point(data=rate_by_status_age_adjusted,aes(y = Rate.in.unvaccinated,x= week.ending,colour="Unvaccinated")) +
+         geom_point(data=rate_by_status_age_adjusted,aes(y = Rate.in.fully.vaccinated.without.additional.or.booster,x = week.ending, color="Fully")) +
+         geom_point(data=rate_by_status_age_adjusted,aes(y = Rate.in.fully.vaccinated.with.additional.or.booster,x = week.ending, color="Boosted")) +
+         ggtitle("Age-adjusted Rate of Hospitalization due to COVID-19 \n by Vaccination Status for Adults(18 or Older)") +
+         xlab("Week") + ylab("Rate per 100,000 Population") +
+  scale_color_manual(name = "Vaccination Status", values = c("Unvaccinated" = "red", "Fully Vaccinated" = "blue","Boosted" = "green"))
+
+```
+
+
+
+https://covid.cdc.gov/covid-data-tracker/#covidnet-hospitalizations-vaccination
+```{r}
+#This section of code is unused
+rate_by_status <- read.csv("C:/Users/rly75/OneDrive/Desktop/data_table_for_rates_of_covid19-associated_hospitalizations_by_vaccination_and_additional_or_booster_dose_status.csv")
+
+colnames(rate_by_status)[1] = "week.ending"
+rate_by_status$week.ending = as.Date(rate_by_status$week.ending, format = "%m/%d/%y")
+
+
+```
+
+
+https://data.cdc.gov/Public-Health-Surveillance/Rates-of-COVID-19-Cases-or-Deaths-by-Age-Group-and/d6p8-wqjm
+```{r}
+#This is the main dataset we work with
+#It contains population of unvaccinated, vaccinated, and boosted individuals
+#It records by date, the age group and brand of vaccine of the above populations
+#Most importantly, it contains IRR, the ratio of unvaccinated outcomes:vaccinated/boosted outcomes
+#We focus on IRR, as the IRR for vaccinated and boosted individuals should be equivalent if the booster shot has no effect
+main_data <- read.csv("C:/Users/rly75/OneDrive/Desktop/Rates_of_COVID-19_Cases_or_Deaths_by_Age_Group_and_Vaccination_Status_and_Booster_Dose.csv")
+
+#Convert MMWR week from YYYYWW to a date
+main_data$mmwr_week = main_data$mmwr_week * 10 + 1
+main_data$mmwr_week = as.Date(as.character(main_data$mmwr_week), "%Y%U%u")
+
+#we study all age groups and use the age adjusted IRR to compensate
+#We study all vaccine types and their booster shots
+cases = subset(main_data[,1:11],main_data$outcome=="case" & main_data$age_group=="all_ages" & main_data$vaccine_product=="all_types")
+deaths = subset(main_data[,1:11],main_data$outcome=="death" & main_data$age_group=="all_ages" & main_data$vaccine_product=="all_types")
+
+#preliminary EDA, unused lines 614-629
+cases["unvaccinated_outcome_rate"] = cases$unvaccinated_with_outcome/cases$unvaccinated_population
+cases["vaccinated_with_outcome_rate"] = cases$vaccinated_with_outcome/cases$fully_vaccinated_population
+cases["boosted_with_outcome_rate"] = cases$boosted_with_outcome/cases$boosted_population
+
+deaths["unvaccinated_outcome_rate"] = deaths$unvaccinated_with_outcome/deaths$unvaccinated_population
+deaths["vaccinated_with_outcome_rate"] = deaths$vaccinated_with_outcome/deaths$fully_vaccinated_population
+deaths["boosted_with_outcome_rate"] = deaths$boosted_with_outcome/deaths$boosted_population
+
+cases["total_outcomes"] = cases$unvaccinated_with_outcome+cases$vaccinated_with_outcome+cases$boosted_with_outcome
+deaths["total_outcomes"] = deaths$unvaccinated_with_outcome+deaths$vaccinated_with_outcome+deaths$boosted_with_outcome
+
+cases["total_population"] = cases$unvaccinated_population+cases$fully_vaccinated_population+cases$boosted_population
+deaths["total_population"] = deaths$unvaccinated_population+deaths$fully_vaccinated_population+deaths$boosted_population
+
+cases["total_outcome_rate"] = cases$total_outcomes/cases$total_population
+deaths["total_outcome_rate"] = deaths$total_outcomes/deaths$total_population
+
+
+
+#plot number of cases by vaccination status
+ggplot() + 
+         geom_line(data=cases,aes(x = mmwr_week,y = unvaccinated_with_outcome, color="Unvaccinated"),size=1) +
+         geom_line(data=cases,aes(x = mmwr_week,y = vaccinated_with_outcome, color="Vaccinated"),size=1) +
+         geom_line(data=cases,aes(x = mmwr_week,y = boosted_with_outcome, color="Boosted"),size=1)+
+         ggtitle("Weekly Number of COVID-19 Cases by Vaccination Status") +
+         xlab("Date Reported") + ylab("Number of COVID-19 Cases")+
+  scale_color_manual(name = "Vaccination Status", values = c("Unvaccinated" = "red", "Vaccinated" = "blue","Boosted" = "green"))
+
+#plot number of deaths by vaccination status
+ggplot() + 
+         geom_line(data=deaths,aes(x = mmwr_week,y = unvaccinated_with_outcome, color="Unvaccinated"),size=1) +
+         geom_line(data=deaths,aes(x = mmwr_week,y = vaccinated_with_outcome, color="Vaccinated"),size=1) +
+         geom_line(data=deaths,aes(x = mmwr_week,y = boosted_with_outcome, color="Boosted"),size=1)+
+         ggtitle("Weekly Number of Deaths Due to COVID-19 by Vaccination Status") +
+         xlab("Date Reported") + ylab("Number of Deaths Due to COVID-19")+
+  scale_color_manual(name = "Vaccination Status", values = c("Unvaccinated" = "red", "Vaccinated" = "blue","Boosted" = "green"))
+```
+
+
+
+```{r}
+#UNUSED - REFER TO CASE IRR MODEL FIT
+#Cases Model Fit
+cases_data = rbind(cbind(cases$vaccinated_with_outcome_rate, rep(1,times=nrow(cases))), cbind(cases$boosted_with_outcome_rate, rep(2,times=nrow(cases))) )
+colnames(cases_data) = cbind("rate","status")
+cases_data = as.data.frame(cases_data)
+cases_data$status = as.factor(cases_data$status)
+plotmeans(rate~status,data=cases_data)
+
+aov_cases = aov(rate~status,data=cases_data)
+summary(aov_cases)
+
+plot(aov_cases,1:2)
+
+bc_cases = boxcox(aov_cases)
+
+lambda_cases = bc_cases$x[which.max(bc_cases$y)] #-0.303
+
+aov_cases = aov((rate^lambda_cases - 1)/lambda_cases ~status,data=cases_data)
+plot(aov_cases,1:2)
+summary(aov_cases)
+```
+
+```{r}
+#UNUSED - REFER TO CASE IRR MODEL FIT
+#Conduct simultaneous inference 
+alpha=0.05;
+T.ci_cases=TukeyHSD(aov_cases,conf.level = 1-alpha)
+contrast_cases = T.ci_cases$status
+contrast_cases
+```
+
+
+```{r}
+#UNUSED - REFER TO DEATH IRR MODEL FIT
+#Deaths Model Fit
+deaths_data = rbind(cbind(deaths$vaccinated_with_outcome_rate, rep(1,times=nrow(deaths))), cbind(deaths$boosted_with_outcome_rate, rep(2,times=nrow(deaths))) )
+colnames(deaths_data) = cbind("rate","status")
+deaths_data = as.data.frame(deaths_data)
+deaths_data$status = as.factor(deaths_data$status)
+
+plotmeans(rate~status,data=deaths_data)
+
+aov_deaths = aov(rate~status,data=deaths_data)
+summary(aov_deaths)
+plot(aov_deaths,1:2)
+
+
+
+bc_deaths = boxcox(aov_deaths)
+
+lambda_deaths = bc_deaths$x[which.max(bc_deaths$y)]
+
+aov_deaths = aov((rate^lambda_deaths-1)/lambda_deaths~status,data=deaths_data)
+plot(aov_deaths,1:2)
+summary(aov_deaths)
+
+```
+
+```{r}
+#UNUSED - REFER TO DEATH IRR MODEL FIT
+#Conduct simultaneous inference 
+alpha=0.05;
+T.ci_deaths=TukeyHSD(aov_deaths,conf.level = 1-alpha)
+contrast_deaths = T.ci_deaths$status
+contrast_deaths
+```
+
+
+
+
+
+```{r message=FALSE, warning=FALSE}
+#Case IRR Model Fit
+age_adj_irr_cases = subset(main_data,main_data$outcome=="case" & main_data$age_group=="all_ages" & main_data$vaccine_product=="all_types")
+
+
+age_adj_irr_cases_data = rbind(cbind(age_adj_irr_cases$month,age_adj_irr_cases$age_adj_irr, rep(1,times=nrow(cases))), cbind(age_adj_irr_cases$month,age_adj_irr_cases$age_adj_booster_irr, rep(2,times=nrow(cases))) )
+colnames(age_adj_irr_cases_data) = cbind("time","rate","status")
+
+#categorize by time period: before/after december case spike
+age_adj_irr_cases_data[1:10,"time"] = "pre_dec"
+age_adj_irr_cases_data[11:18,"time"] = "post_dec"
+
+age_adj_irr_cases_data[19:28,"time"] = "pre_dec"
+age_adj_irr_cases_data[28:36,"time"] = "post_dec"
+
+
+age_adj_irr_cases_data = as.data.frame(age_adj_irr_cases_data)
+age_adj_irr_cases_data$status = as.factor(age_adj_irr_cases_data$status)
+age_adj_irr_cases_data$time = as.factor(age_adj_irr_cases_data$time)
+age_adj_irr_cases_data$rate = as.double(age_adj_irr_cases_data$rate)
+
+#plotmeans(rate~status,data=age_adj_irr_cases_data)
+#plotmeans(rate~time,data=age_adj_irr_cases_data)
+
+#first model fit with interaction
+aov_irr_cases = aov(rate~status+time+status*time,data=age_adj_irr_cases_data)
+
+#interaction is found to not be significant
+summary(aov_irr_cases)
+
+plot(aov_irr_cases,1:2)
+hist(aov_irr_cases$residuals)
+
+#try to boxcox procedure the response variable
+bc_irr_cases = boxcox(aov_irr_cases)
+lambda_irr_cases = bc_irr_cases$x[which.max(bc_irr_cases$y)]
+
+#we try to transform the model response with a boxcox procedure done above
+aov_irr_cases_interaction = aov((rate^lambda_irr_cases-1)/lambda_irr_cases~status+time+status*time,data=age_adj_irr_cases_data)
+#interaction term still insignificant
+summary(aov_irr_cases_interaction)
+
+#model diagnostic plots
+plot(aov_irr_cases_interaction,1:2)
+hist(aov_irr_cases_interaction$residuals)
+
+#drop the interaction term from the model to obtain the final model with both booster status and time period significant factors
+aov_irr_cases = aov((rate^lambda_irr_cases-1)/lambda_irr_cases~status+time,data=age_adj_irr_cases_data)
+summary(aov_irr_cases)
+#model diagnostic plots
+plot(aov_irr_cases,1:2)
+hist(aov_irr_cases$residuals)
+
+#Conduct simultaneous inference using the Tukey method
+alpha=0.05;
+T.ci_irr_cases=TukeyHSD(aov_irr_cases,conf.level = 1-alpha)
+contrast_irr_cases = T.ci_irr_cases$status
+contrast_irr_cases
+
+#check normality of residuals with shapiro wilkes test
+shapiro.test(aov_irr_cases$residuals)
+```
+
+
+```{r message=FALSE, warning=FALSE}
+#Death IRR Model Fit
+age_adj_irr_deaths = subset(main_data,main_data$outcome=="death" & main_data$age_group=="all_ages" & main_data$vaccine_product=="all_types")
+
+
+age_adj_irr_deaths_data = rbind(cbind(age_adj_irr_deaths$month,age_adj_irr_deaths$age_adj_irr, rep(1,times=nrow(deaths))), cbind(age_adj_irr_deaths$month,age_adj_irr_deaths$age_adj_booster_irr, rep(2,times=nrow(deaths))) )
+colnames(age_adj_irr_deaths_data) = cbind("time","rate","status")
+
+#categorize by time period: before/after december case spike
+age_adj_irr_deaths_data[1:10,"time"] = "pre_dec"
+age_adj_irr_deaths_data[11:15,"time"] = "post_dec"
+age_adj_irr_deaths_data[16:25,"time"] = "pre_dec"
+age_adj_irr_deaths_data[26:30,"time"] = "post_dec"
+
+
+age_adj_irr_deaths_data = as.data.frame(age_adj_irr_deaths_data)
+age_adj_irr_deaths_data$status = as.factor(age_adj_irr_deaths_data$status)
+age_adj_irr_deaths_data$time = as.factor(age_adj_irr_deaths_data$time)
+age_adj_irr_deaths_data$rate = as.double(age_adj_irr_deaths_data$rate)
+
+#first model fit
+aov_irr_deaths = aov(rate~status+time+status*time,data=age_adj_irr_deaths_data)
+#interaction not significant, time period factor not significant 
+summary(aov_irr_deaths)
+#remove interaction term
+aov_irr_deaths = aov(rate~status+time,data=age_adj_irr_deaths_data)
+#time period factor not significant
+summary(aov_irr_deaths)
+#remove time period factor 
+aov_irr_deaths = aov(rate~status,data=age_adj_irr_deaths_data)
+#booster status significant factor
+summary(aov_irr_deaths)
+
+#model diagnostic plots
+plot(aov_irr_deaths,1:2)
+hist(aov_irr_deaths$residuals)
+
+#try boxcox procedure to transform response variable for more normally distributed residuals
+bc_irr_deaths = boxcox(aov_irr_deaths)
+lambda_irr_deaths = bc_irr_deaths$x[which.max(bc_irr_deaths$y)]
+
+#final model with transformed response
+aov_irr_deaths = aov((rate^lambda_irr_deaths-1)/lambda_irr_deaths~status,data=age_adj_irr_deaths_data)
+summary(aov_irr_deaths)
+
+#final model diagnostics
+plot(aov_irr_deaths,1:2)
+hist(aov_irr_deaths$residuals)
+
+
+#Conduct simultaneous inference 
+alpha=0.05;
+T.ci_irr_deaths=TukeyHSD(aov_irr_deaths,conf.level = 1-alpha)
+contrast_irr_deaths = T.ci_irr_deaths$status
+contrast_irr_deaths
+
+#check normality of residuals with shapiro wilkes test
+shapiro.test(aov_irr_deaths$residuals)
+```
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+sessionInfo()
+```
